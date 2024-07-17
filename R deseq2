@@ -1,0 +1,243 @@
+getwd();
+workingDir = ".";
+setwd(workingDir)
+library(tximeta)
+library(tximport)
+library(DESeq2)
+library(WGCNA)
+library(dplyr)
+library(data.table)
+library(ggfortify)
+library(ggplot2)
+library(factoextra)
+library(BiocParallel)
+library(IHW)
+library(UpSetR)
+library(biomaRt)
+library(org.Mm.eg.db)
+library(AnnotationDbi)
+library(magrittr)
+library(CorLevelPlot)
+library(pheatmap)
+library(clusterProfiler)
+library(apeglm)
+library(biomaRt)
+
+dir = "C:/Users/emili/OneDrive/Documentos/R/RNAseqnewmale"
+snames = read.csv("snamesc1.csv")
+snames1 = setDT(snames) 
+salpath = file.path(dir,"quant.sf")
+gene_map = read.csv("gene_map.csv", col.names = c('ensgid', 'enstid'))
+
+snames = unique(snames)
+class(snames1)
+sf=paste0(pull( snames1, "sample"),'/quant.sf')
+
+names(sf) = pull(snames1, "sample")
+
+colnames(snames1)
+
+txi2 = tximport(files = sf, type = "salmon", tx2gene = gene_map, ignoreTxVersion = TRUE)
+txi2
+
+samplemice = as.data.frame(snames1)
+sconditions = c('CYM','Vehicle')
+sconditions = rep(c('CYM','Vehicle'), times = c(8,7))
+sconditions = factor(sconditions)
+samplemice$sconditions = sconditions
+samplemice$sconditions = relevel(samplemice$sconditions, ref = "Vehicle")
+
+deseq = DESeqDataSetFromTximport(txi= txi2, colData = samplemice , design =~sconditions)
+###deseq 
+dds = DESeq(deseq)
+res = results(dds)
+res
+head(res)
+res1 = res
+dds1 =estimateSizeFactors(dds)
+counts1 = counts(dds1, normalized=TRUE)
+counts = counts(dds)
+vsd = vst(dds, blind = FALSE)
+vst_counts = assay(vsd)
+rld =rlog(dds, blind =FALSE)
+rlog_counts = assay(rld)
+res_shrink = lfcShrink(dds, coef = 2, type = "apeglm")
+res_shrink
+res_shrink$lfcLower <- res_shrink$log2FoldChange - 1.96 * res_shrink$lfcSE
+res_shrink$lfcUpper <- res_shrink$log2FoldChange + 1.96 * res_shrink$lfcSE
+head(res_shrink)
+write.csv(as.data.frame(res_shrink), file = "DESeq2_results_with_CI_all.csv")
+###
+respv0.5 = 
+resOrdered= res[order(res$pvalue),]
+summary(res)
+FCYMr=sum(res$padj < 0.01, na.rm=TRUE)
+
+sum(res05$padj < 0.01, na.rm=TRUE)
+
+resIHW = results(dds, filterFun =ihw)
+summary = (resIHW)
+sum(resIHW$padj <0.1, na.rm=TRUE)
+metadata(resIHW)$ihwResult
+txi2$counts[1:3,1:15]
+counts(deseq)[1:3,1:15]
+counts(dds)[1:3,1:15]
+#MA-PLot
+plotMA(res)
+idx <- identify(res$baseMean, res$log2FoldChange)
+rownames(res)[idx]
+
+#Plot count
+plotCounts(dds, gene=which.min(res_shrink$padj), intgroup="sconditions")
+
+d <- plotCounts(dds, gene= "ENSMUSG00000000214", intgroup="sconditions", 
+                returnData=TRUE)
+library("ggplot2")
+ggplot(d, aes(x=sconditions, y=count)) + 
+  geom_point(position=position_jitter(w=0.1,h=0)) + 
+  scale_y_log10(breaks=c(25,100,400,1000))
+
+#exporting res to CSV
+write.csv(as.data.frame(resOrdered), 
+          file="condition_treated_resultsmvf.csv")
+resSig <- subset(resOrdered, padj < 0.05)
+resSig
+
+#plotPCA
+vsd = varianceStabilizingTransformation(dds)
+plotPCA(vsd, ntop=57141 ,intgroup='sconditions')
++ geom_text(aes(label=snames$sample),vjust=2)
+plotPCA(vsd) 
+#variation to the standard workflow wald test
+dds1 = estimateSizeFactors(dds)
+dds1 = estimateDispersions(dds)
+dds1= nbinomWaldTest(dds1)
+
+#dispersion plot
+plotDispEsts(dds)
+
+deseq = estimateSizeFactors(deseq)
+normalizationFactors(deseq)
+counts(deseq, normalized =TRUE)[1:3,1:15]
+
+#Upsetplot
+threshold = 0.05
+sgall=read.csv("siggenedataallcymsh.csv")
+sgmale = read.csv("siggenedatamalecymsh.csv")
+sgfemale = read.csv("siggenedatafemalecym.csv")
+sigall = sgall$SYMBOL
+simale = sgmale$SYMBOL
+sifemale =sgfemale$genename
+
+all_genes = unique(c(sigall, simale, sifemale))
+membership_df <- data.frame(
+  Gene = all_genes,
+  Allgroups_v_male = all_genes %in% sigall & all_genes %in% simale,
+  Allgroups_v_female = all_genes %in% sigall & all_genes %in% sifemale,
+  Female_v_male = all_genes %in% sifemale & all_genes %in% simale,
+  Only_Allgroups = all_genes %in% sigall & !(all_genes %in% simale) & !(all_genes %in% sifemale),
+  Only_Male = all_genes %in% simale & !(all_genes %in% sigall) & !(all_genes %in% sifemale),
+  Only_Female = all_genes %in% sifemale & !(all_genes %in% sigall) & !(all_genes %in% simale)
+)
+
+# Convert logical values to integers
+membership_df <- membership_df %>%
+  mutate(across(everything(), as.integer))
+upset(membership_df, sets = c("Allgroups_v_male", "Allgroups_v_female", "Female_v_male", "Only_Allgroups", "Only_Male", "Only_Female"))
+print(sig_genes_mvf)
+print(sig_genes_fvfp)
+print(sig_genes_mvfp)
+
+### from ensembl id to gene name
+sig_genes = rownames(res)[!is.na(res$padj) & res$padj < threshold]
+sigs.df = as.character(sig_genes)
+sigs.df
+gene_symbols = mapIds(org.Mm.eg.db, keys = sigs.df, keytype = "ENSEMBL", column = "SYMBOL")
+
+
+# Map ENSEMBL IDs to protein functions (if available)
+protein_functions = mapIds(org.Mm.eg.db, keys = sigs.df, keytype = "ENSEMBL", column = "GENENAME")
+
+uniprot = mapIds(org.Mm.eg.db, keys = sigs.df, keytype = "ENSEMBL", column = "GO")
+goall = mapIds(org.Mm.eg.db, keys = sigs.df, keytype = "ENSEMBL", column = "GOALL")
+ontology = mapIds(org.Mm.eg.db, keys = sigs.df, keytype = "ENSEMBL", column = "PFAM")
+
+
+# Combine the annotations into a data frame
+sigs.df = data.frame(
+  ENSEMBL = sigs.df,
+  SYMBOL = gene_symbols,
+  GENEdesc = protein_functions,
+  GOall1= goall,
+  prot = uniprot
+)
+
+write.csv(as.data.frame(sigs.df), file = "siggenenamesallcym1.csv")
+sigs.df = read.csv("siggenenamesallcym1.csv")
+
+####gene info
+ensembl <- useMart("ensembl")
+mouse <- useDataset("mmusculus_gene_ensembl", mart = ensembl)
+
+# Define the list of gene names and attributes to retrieve
+gene_list = c("Th", "Rec8", "Fcer2a", "Trh", "Ly6g6e", "Alx3", "Mrm1", "Nts", "Cartpt", 
+             "Rgr", "Bmp4", "Arc", "Fetub", "Gtf2ird1", "Zfp521", "Gal", "Urah", 
+             "Slco5a1", "Wnt10a", "Tmem163", "Stoml3", "Egf", "Artn", "Dpysl5", "Cabp1", "Dlx6", 
+             "Dlx5", "Qrfprl", "Tacr1", "Wnt7a", "Agt", "Zic1", "Scn5a", "Heyl", "Hsf4", 
+             "Poglut3", "Gpr101", "Wtip", "Rnf39", "Zcchc12", "Traf3ip3", "Haus6", "AW551984", "Pcp4l1", 
+             "Zfp189", "Epop", "Togaram2", "Cd24a", "Gpr68", "Baiap3", "Ier5", "Tmem40", "Syt9", 
+             "Csn2", "Insyn2b", "Gm13304", "Omp", "Gm12408", "Lbhd2", "H3c14", "Ccl21d", "Ccl21b", 
+             "Gm10591", "Gm16793", "Gm17750", "NA.")
+gene_list1 = sigs.df$x
+attributes <- c("external_gene_name", "description", "gene_biotype")
+gene_info <- select(org.Mm.eg.db, keys = gene_list1, columns = c("SYMBOL", "GENENAME", "ENTREZID"), keytype = "ENSEMBL")
+
+#####
+siggenedata= as.data.frame(res_shrink)
+write.csv(siggenedata, "siggenes.csv")
+siggenesfem = read.csv("siggenes.csv")
+siggenesfem = as.data.frame(siggenesfem)
+write.csv(siggenesfem, "siggenesfem.csv")
+siggenedatafemalecym = siggenesfem[siggenesfem$X %in% sigs.df$X,]
+write.csv(siggenedatafemalecym, "siggenedataallcym2.csv")
+write.csv(counts,"counts.csv")
+countsfemale = read.csv("counts.csv")
+countsfemale = countsfemale[countsfemale$X %in% sigs.df$X,]
+write.csv(countsfemale, "normcountsfemale3.csv")
+
+# Assuming gene names are in a column named 'gene' in the data frames
+common_genes = intersect(rownames(resmvfp), sig_genes_mvfp))
+
+# Subset sig_genes_mvfp and resmvfp based on common genes
+sig_genes_mvfp_subset = sig_genes_mvf[sig_genes_mvfp %in% common_genes]
+resmvfp_subset = resmvfp[common_genes, ]
+
+# Now, you can add the results from resmvfp to sig_genes_mvfp_subset
+sig_genes_mvfp_results = cbind(sig_genes_mvfp_subset, resmvfp_subset)
+
+# Print or use sig_genes_mvfp_results as needed
+print(sig_genes_mvfp_results)
+sigs.df = as.data.frame(sigs.df)
+sig_genes_mvfp_results$genenames = sigs.df$sigs.df
+sig_genes_mvfp_results = as.data.frame(sig_genes_mvfp_results)
+write.csv(sig_genes_mvfp_results, file = "sigenesdatamvfp.csv")
+###
+siggenesdata = read.csv("sigenesdatamvfp.csv")
+eremvfp = read.csv("Eremvfp.csv")
+Eremvfpdata = siggenesdata[ siggenesdata$genenames %in% eremvfp$EREmvfp,]
+write.csv(Eremvfpdata, "Eremvfpdata.csv")
+genesinbrown = read.csv("genes_inbrown.csv")
+sigbrowndata = siggenesdata[siggenesdata$genenames %in% genesinbrown$genesymbol,]
+write.csv(sigbrowndata,"sigbrowndata.csv")
+
+####
+allgpv3 = as.data.frame(resmvf)
+write.csv(as.data.frame(allgpv3), file = "allgpvmvf.csv")
+allgpv = mapIds(org.Mm.eg.db, keys = rownames(allgpv2), keytype = "ENSEMBL", column = "SYMBOL")
+write.csv(as.data.frame(allgpv), file = "allgpvmfp.csv")
+resmvfp2 = as.data.frame(resmvfp)
+ write.csv(resmvfp2, "resmvfp2data.csv")
+resmvfp1 = mapIds(org.Mm.eg.db, keys = row.names(resmvfp1), keytype = "ENSEMBL", column = "SYMBOL")
+resmvfp1 = as.data.frame(resmvfp1)
+write.csv(resmvfp1, "resmvfpnames.csv")
+####
