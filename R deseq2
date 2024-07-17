@@ -241,3 +241,36 @@ resmvfp1 = mapIds(org.Mm.eg.db, keys = row.names(resmvfp1), keytype = "ENSEMBL",
 resmvfp1 = as.data.frame(resmvfp1)
 write.csv(resmvfp1, "resmvfpnames.csv")
 ####
+
+data1 = read.csv("siggenedataallcymsh.csv")
+go_ids = data1$prot
+
+gn = get_names(go_ids, term_df = NULL, godir = NULL)
+write.csv(gn, "gonames.csv")
+genenames = data1$SYMBOL
+gn1 = get_anno_categories(genenames, database = "Mus.musculus")
+write.csv(gn1, "gonamesall.csv")
+datafem = read.csv("gonamesfemale.csv")
+datafem = t(datafem)
+write.csv(datafem, "gonamest.csv")
+
+df= read.csv("gonamesmalemf.csv")
+combined_df <- df %>%
+  group_by(gene) %>%
+  summarize(
+    go_id = paste(go_id, collapse = "; "),
+    name = paste(name, collapse = "; "),
+    domain = paste(domain, collapse = "; ")
+  )
+print(combined_df)
+write.csv(combined_df,"combinedgomalemf.csv")
+
+df1 = read.csv("combinedgomalemf.csv")
+
+# Separate the name column into multiple columns
+separated_df <- df1 %>%
+  separate(name, into = paste0("name_", 1:21), sep = "; ", fill = "right")
+
+# Print the separated dataframe
+print(separated_df)
+write.csv(separated_df, "gomalebcmf.csv")
