@@ -8,7 +8,7 @@
 module load openjdk
 
 export PATH=$PATH:/home/jec423/FastQC/
-for i in /scratch/jec423/trimmed_files/profemale/*.fq.gz
+for i in /scratch/jec423/fastqc/trimmed_files/*.fq.gz
 	do 
 
 		fastqc -t $i  -o /scratch/jec423/trimmed_files/profemale/fastqc
